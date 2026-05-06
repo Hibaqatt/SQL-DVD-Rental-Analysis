@@ -1,0 +1,147 @@
+/* Query 1 - query used for first insight */
+
+WITH monthly_total_2007 AS (
+    SELECT
+        c.customer_id,
+        c.first_name || ' ' || c.last_name AS customer_name,
+        DATE_PART('MONTH', p.payment_date) AS month,
+        SUM(p.amount)                      AS monthly_total
+    FROM
+        customer AS c
+        JOIN payment AS p
+            ON p.customer_id = c.customer_id
+    WHERE
+        DATE_PART('YEAR', p.payment_date) = 2007
+    GROUP BY
+        c.customer_id,
+        c.first_name,
+        c.last_name,
+        month
+),
+average AS (
+    SELECT
+        customer_id,
+        customer_name,
+        month,
+        monthly_total,
+        AVG(monthly_total) OVER (
+            PARTITION BY customer_id
+        ) AS yearly_average
+    FROM
+        monthly_total_2007
+)
+SELECT
+    customer_name,
+    AVG(ABS(monthly_total - yearly_average)) AS average_deviation
+FROM
+    average
+GROUP BY
+    customer_name
+ORDER BY
+    average_deviation DESC
+LIMIT
+    10;
+
+
+/* Query 2 - query used for second insight */
+
+WITH category_revenue AS (
+    SELECT
+        c.category_id,
+        c.name        AS category_name,
+        SUM(p.amount) AS total_revenue
+    FROM
+        category AS c
+        INNER JOIN film_category AS fc
+            ON c.category_id = fc.category_id
+        INNER JOIN film AS f
+            ON fc.film_id = f.film_id
+        INNER JOIN inventory AS i
+            ON f.film_id = i.film_id
+        INNER JOIN rental AS r
+            ON i.inventory_id = r.inventory_id
+        INNER JOIN payment AS p
+            ON r.rental_id = p.rental_id
+    GROUP BY
+        c.category_id,
+        c.name
+)
+SELECT
+    category_name,
+    total_revenue
+FROM
+    category_revenue
+WHERE
+    total_revenue > (
+        SELECT
+            AVG(total_revenue)
+        FROM
+            category_revenue
+    )
+ORDER BY
+    total_revenue DESC;
+
+
+/* Query 3 - query used for third insight */
+
+WITH store_revenue AS (
+    SELECT
+        c.store_id,
+        SUM(p.amount) AS total_revenue
+    FROM
+        customer AS c
+        INNER JOIN payment AS p
+            ON c.customer_id = p.customer_id
+    GROUP BY
+        c.store_id
+),
+average_revenue AS (
+    SELECT
+        AVG(total_revenue) AS average_store_revenue
+    FROM
+        store_revenue
+)
+SELECT
+    sr.store_id,
+    sr.total_revenue,
+    ar.average_store_revenue,
+    CASE
+        WHEN sr.total_revenue > ar.average_store_revenue THEN 'above average'
+        ELSE 'under average'
+    END AS performance_status
+FROM
+    store_revenue AS sr
+    CROSS JOIN average_revenue AS ar
+ORDER BY
+    sr.total_revenue DESC;
+
+
+/* Query 4 - query used for forth insight */
+
+WITH country_revenue AS (
+    SELECT
+        co.country,
+        SUM(p.amount) AS total_revenue
+    FROM
+        country AS co
+        INNER JOIN city AS ci
+            ON co.country_id = ci.country_id
+        INNER JOIN address AS a
+            ON ci.city_id = a.city_id
+        INNER JOIN customer AS c
+            ON a.address_id = c.address_id
+        INNER JOIN payment AS p
+            ON c.customer_id = p.customer_id
+    GROUP BY
+        co.country
+)
+SELECT
+    country,
+    total_revenue,
+    RANK() OVER (
+        ORDER BY total_revenue DESC
+    ) AS revenue_rank
+FROM
+    country_revenue
+LIMIT
+    5;
